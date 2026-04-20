@@ -14,13 +14,11 @@ Native macOS app that exposes Apple's local speech-to-text engine through the Wy
 
 - Built against the macOS 26 SDK because it uses `SpeechTranscriber`
 - Designed for Apple Silicon Macs running a compatible macOS version
-- Focused on speech-to-text first; TTS and wake-word support can be added later on the same Wyoming surface
 
 ## Running
 
-```bash
-./script/build_and_run.sh
-```
+1. Open `WyomingAppleSpeechServer.xcodeproj` in Xcode 26+
+2. Click on "▶️" (Run)
 
 ## Home Assistant
 

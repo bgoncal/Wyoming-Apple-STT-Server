@@ -36,3 +36,21 @@ func wavWriterProducesRIFFFile() throws {
     #expect(String(decoding: fileData[8..<12], as: UTF8.self) == "WAVE")
     #expect(fileData.count == audio.count + 44)
 }
+
+@Test
+func audioFormatSupportsNestedAudioObject() {
+    let format = WyomingAudioFormat.from([
+        "audio": .object([
+            "rate": .number(16_000),
+            "width": .number(2),
+            "channels": .number(1),
+        ]),
+    ])
+
+    #expect(format == WyomingAudioFormat(rate: 16_000, width: 2, channels: 1))
+}
+
+@Test
+func homeAssistantFallbackAudioFormatMatchesAssistPCM() {
+    #expect(WyomingAudioFormat.homeAssistantFallback == WyomingAudioFormat(rate: 16_000, width: 2, channels: 1))
+}

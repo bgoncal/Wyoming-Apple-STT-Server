@@ -24,6 +24,9 @@ final class AppModel {
     var advertisedServiceType = "_wyoming._tcp.local."
     var recentTranscripts: [TranscriptRecord] = []
     var logs: [LogEntry] = []
+    var logPage = 0
+
+    private let logPageSize = 50
 
     private let transcriber = WyomingSpeechTranscriber()
     private var serverController: WyomingServerController?
@@ -277,6 +280,44 @@ final class AppModel {
         return localeAvailability(for: option).label
     }
 
+    var paginatedLogs: [LogEntry] {
+        let startIndex = logPage * logPageSize
+        guard startIndex < logs.count else { return [] }
+
+        let endIndex = min(startIndex + logPageSize, logs.count)
+        return Array(logs[startIndex..<endIndex])
+    }
+
+    var logPageCount: Int {
+        max(1, Int(ceil(Double(logs.count) / Double(logPageSize))))
+    }
+
+    var logPageLabel: String {
+        "Page \(logPage + 1) of \(logPageCount)"
+    }
+
+    var canGoToPreviousLogPage: Bool {
+        logPage > 0
+    }
+
+    var canGoToNextLogPage: Bool {
+        logPage + 1 < logPageCount
+    }
+
+    func showPreviousLogPage() {
+        guard canGoToPreviousLogPage else { return }
+        logPage -= 1
+    }
+
+    func showNextLogPage() {
+        guard canGoToNextLogPage else { return }
+        logPage += 1
+    }
+
+    func showNewestLogs() {
+        logPage = 0
+    }
+
     private func bootstrap() async {
         await refreshAvailableLocales()
         if autoStart {
@@ -285,8 +326,22 @@ final class AppModel {
     }
 
     private func appendLog(_ message: String) {
-        logs.insert(LogEntry(timestamp: .now, message: message), at: 0)
+        let now = Date.now
+        if !logs.isEmpty, logs[0].message == message {
+            logs[0].timestamp = now
+            logs[0].repetitionCount += 1
+        } else {
+            logs.insert(LogEntry(timestamp: now, message: message), at: 0)
+        }
+
         logs = Array(logs.prefix(200))
+        if logPage == 0 {
+            return
+        }
+
+        if logPage >= logPageCount {
+            logPage = max(0, logPageCount - 1)
+        }
     }
 
     private func persistCurrentDraft(port: UInt16) {

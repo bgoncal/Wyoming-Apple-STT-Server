@@ -1,6 +1,7 @@
 # Xcode
 xcuserdata/
 DerivedData/
+.deriveddata/
 *.hmap
 *.ipa
 *.dSYM.zip

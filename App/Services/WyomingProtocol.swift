@@ -99,7 +99,18 @@ struct WyomingAudioFormat: Sendable, Equatable {
     let width: Int
     let channels: Int
 
+    static let homeAssistantFallback = WyomingAudioFormat(rate: 16_000, width: 2, channels: 1)
+
     static func from(_ object: WyomingObject) -> WyomingAudioFormat? {
+        if let nestedAudio = object["audio"]?.objectValue,
+           let format = WyomingAudioFormat.fromFields(in: nestedAudio) {
+            return format
+        }
+
+        return WyomingAudioFormat.fromFields(in: object)
+    }
+
+    private static func fromFields(in object: WyomingObject) -> WyomingAudioFormat? {
         guard
             let rate = object["rate"]?.intValue,
             let width = object["width"]?.intValue,

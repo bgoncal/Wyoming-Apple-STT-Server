@@ -17,7 +17,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "WyomingAppleSpeechServer",
-            path: "Sources/WyomingAppleSpeechServer"
+            path: "Sources/WyomingAppleSpeechServer",
+            resources: [
+                .process("Resources"),
+            ]
         ),
         .testTarget(
             name: "WyomingAppleSpeechServerTests",

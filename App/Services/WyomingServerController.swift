@@ -106,6 +106,8 @@ private final class WyomingClientSession {
     private var transcribeRequest = WyomingTranscribeRequest()
     private var activeAudioFormat: WyomingAudioFormat?
     private var activeAudio = Data()
+    private var receivedAudioChunkCount = 0
+    private var firstAudioChunkSize = 0
     private var hasClosed = false
 
     init(connection: NWConnection, configuration: ServerConfiguration, transcriber: WyomingSpeechTranscriber) {
@@ -179,6 +181,8 @@ private final class WyomingClientSession {
     }
 
     private func handle(_ event: WyomingEvent) async {
+        onLog?(eventSummary(for: event))
+
         switch event.type {
         case "describe":
             let locales = await transcriber.availableLocaleIdentifiers()
@@ -190,28 +194,77 @@ private final class WyomingClientSession {
                 language: event.data["language"]?.stringValue,
                 context: event.data["context"]?.objectValue
             )
+            onLog?(
+                "Received transcribe from \(clientLabel)"
+                + " language=\(transcribeRequest.language ?? "<none>")"
+                + " model=\(transcribeRequest.name ?? "<default>")"
+            )
 
         case "audio-start":
             activeAudioFormat = WyomingAudioFormat.from(event.data)
             activeAudio.removeAll(keepingCapacity: true)
+            receivedAudioChunkCount = 0
+            firstAudioChunkSize = 0
+            if let format = activeAudioFormat {
+                onLog?(
+                    "Received audio-start from \(clientLabel)"
+                    + " rate=\(format.rate)"
+                    + " width=\(format.width)"
+                    + " channels=\(format.channels)"
+                )
+            } else {
+                onLog?("Received audio-start from \(clientLabel) without a usable audio format.")
+            }
 
         case "audio-chunk":
             if activeAudioFormat == nil {
                 activeAudioFormat = WyomingAudioFormat.from(event.data)
             }
-            activeAudio.append(event.payload ?? Data())
+            let payload = event.payload ?? Data()
+            activeAudio.append(payload)
+            receivedAudioChunkCount += 1
+            if receivedAudioChunkCount == 1 {
+                firstAudioChunkSize = payload.count
+            }
+            if receivedAudioChunkCount == 1 {
+                if let format = activeAudioFormat {
+                    onLog?(
+                        "Received first audio-chunk from \(clientLabel)"
+                        + " bytes=\(payload.count)"
+                        + " rate=\(format.rate)"
+                        + " width=\(format.width)"
+                        + " channels=\(format.channels)"
+                    )
+                } else {
+                    onLog?("Received first audio-chunk from \(clientLabel) with \(payload.count) bytes but no usable audio format.")
+                }
+            }
 
         case "audio-stop":
-            guard let format = activeAudioFormat else {
-                onLog?("Ignoring audio-stop from \(clientLabel) because no audio-start was received.")
+            let format = resolvedAudioFormatForBufferedStream()
+            guard let format else {
+                onLog?(
+                    "Ignoring audio-stop from \(clientLabel)"
+                    + " because no usable audio format was established."
+                    + " chunks=\(receivedAudioChunkCount)"
+                    + " buffered_bytes=\(activeAudio.count)"
+                )
                 return
             }
 
             let audio = activeAudio
             let request = transcribeRequest
+            let chunkCount = receivedAudioChunkCount
             activeAudioFormat = nil
             activeAudio.removeAll(keepingCapacity: false)
+            receivedAudioChunkCount = 0
+            firstAudioChunkSize = 0
             transcribeRequest = WyomingTranscribeRequest()
+            onLog?(
+                "Received audio-stop from \(clientLabel)"
+                + " chunks=\(chunkCount)"
+                + " buffered_bytes=\(audio.count)"
+            )
 
             do {
                 let result = try await transcriber.transcribe(
@@ -245,6 +298,53 @@ private final class WyomingClientSession {
         default:
             onLog?("Ignoring unsupported Wyoming event '\(event.type)' from \(clientLabel).")
         }
+    }
+
+    private func eventSummary(for event: WyomingEvent) -> String {
+        var details = [
+            "Received \(event.type) from \(clientLabel)",
+        ]
+
+        if let payload = event.payload, !payload.isEmpty {
+            details.append("payload_bytes=\(payload.count)")
+        }
+
+        if let format = WyomingAudioFormat.from(event.data) {
+            details.append("rate=\(format.rate)")
+            details.append("width=\(format.width)")
+            details.append("channels=\(format.channels)")
+        }
+
+        if let language = event.data["language"]?.stringValue, !language.isEmpty {
+            details.append("language=\(language)")
+        }
+
+        if let name = event.data["name"]?.stringValue, !name.isEmpty {
+            details.append("name=\(name)")
+        }
+
+        return details.joined(separator: " ")
+    }
+
+    private func resolvedAudioFormatForBufferedStream() -> WyomingAudioFormat? {
+        if let activeAudioFormat {
+            return activeAudioFormat
+        }
+
+        guard receivedAudioChunkCount > 0, !activeAudio.isEmpty else {
+            return nil
+        }
+
+        let fallback = WyomingAudioFormat.homeAssistantFallback
+        onLog?(
+            "Assuming Home Assistant PCM format for \(clientLabel)"
+            + " rate=\(fallback.rate)"
+            + " width=\(fallback.width)"
+            + " channels=\(fallback.channels)"
+            + " first_chunk_bytes=\(firstAudioChunkSize)"
+            + " buffered_bytes=\(activeAudio.count)"
+        )
+        return fallback
     }
 
     private func send(_ event: WyomingEvent) {

@@ -2,6 +2,7 @@ import Foundation
 
 struct LogEntry: Identifiable, Sendable {
     let id = UUID()
-    let timestamp: Date
+    var timestamp: Date
     let message: String
+    var repetitionCount: Int = 1
 }

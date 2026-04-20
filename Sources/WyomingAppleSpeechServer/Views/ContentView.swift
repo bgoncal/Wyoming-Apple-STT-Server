@@ -96,15 +96,51 @@ struct ContentView: View {
 
                 LabeledContent("Preferred Locale") {
                     Picker("Preferred Locale", selection: $model.preferredLocaleIdentifier) {
-                        ForEach(model.availableLocaleIdentifiers, id: \.self) { identifier in
-                            Text(model.localeDisplayName(for: identifier))
-                                .tag(identifier)
+                        ForEach(model.localeOptions) { option in
+                            Text(model.localePickerLabel(for: option))
+                                .tag(option.identifier)
                         }
                     }
                     .frame(width: 320)
+                    .disabled(model.isInstallingLocale)
                 }
 
                 Toggle("Start the server automatically on launch", isOn: $model.autoStart)
+            }
+            .onChange(of: model.preferredLocaleIdentifier) { _, _ in
+                Task {
+                    await model.handlePreferredLocaleSelectionChange()
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Selected locale: \(model.selectedLocaleAvailabilityLabel)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let download = model.localeDownloadState {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Downloading \(download.displayName)")
+                            Spacer()
+                            Text("\(Int(download.progress * 100))%")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        ProgressView(value: download.progress)
+                            .progressViewStyle(.linear)
+                        Button("Cancel Download") {
+                            model.cancelLocaleInstallation()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                if let error = model.localeInstallErrorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
 
             Divider()
@@ -114,8 +150,50 @@ struct ContentView: View {
                     .font(.headline)
                 Text("The app advertises itself as `_wyoming._tcp.local.` and defaults to port `10300`, which matches typical Wyoming deployments.")
                     .foregroundStyle(.secondary)
+                Text("All locales that Apple supports are shown here. If you pick one that is not installed yet, the app downloads the speech assets and shows progress before using it.")
+                    .foregroundStyle(.secondary)
                 Text("If discovery does not appear immediately, add the Wyoming Protocol integration manually and point it at this Mac’s LAN IP plus the chosen port.")
                     .foregroundStyle(.secondary)
+            }
+
+            if !model.installedLocaleOptions.isEmpty {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Installed Speech Assets")
+                        .font(.headline)
+
+                    ForEach(model.installedLocaleOptions) { option in
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(model.localeDisplayName(for: option.identifier))
+                                Text("\(option.identifier) - \(model.localeAvailability(for: option).label)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            if model.localeRemovalIdentifier == option.identifier {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Button("Remove") {
+                                    Task {
+                                        await model.removeLocale(identifier: option.identifier)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(!model.canRemoveLocale(option.identifier))
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+
+                    Text("Removing a locale releases this app's reservation. macOS may delete the downloaded Apple speech assets later instead of immediately.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(22)

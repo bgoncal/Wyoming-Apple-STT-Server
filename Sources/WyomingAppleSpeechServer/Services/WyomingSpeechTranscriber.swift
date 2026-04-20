@@ -5,6 +5,8 @@ import Speech
 enum WyomingSpeechTranscriberError: LocalizedError {
     case engineUnavailable
     case noSupportedLocales
+    case unsupportedLocale(String)
+    case assetInstallationIncomplete(String)
 
     var errorDescription: String? {
         switch self {
@@ -12,6 +14,10 @@ enum WyomingSpeechTranscriberError: LocalizedError {
             return "Apple's local speech engine is unavailable on this Mac."
         case .noSupportedLocales:
             return "No compatible Apple speech locale is installed."
+        case let .unsupportedLocale(identifier):
+            return "Apple Speech does not support the locale \(identifier)."
+        case let .assetInstallationIncomplete(identifier):
+            return "Speech assets for \(identifier) were not fully installed."
         }
     }
 }
@@ -23,12 +29,92 @@ actor WyomingSpeechTranscriber {
     }
 
     func availableLocaleIdentifiers() async -> [String] {
-        let installed = await SpeechTranscriber.installedLocales.map(\.identifier)
-        if !installed.isEmpty {
-            return installed.sorted()
+        return await SpeechTranscriber.supportedLocales.map(\.identifier).sorted()
+    }
+
+    func localeOptions() async -> [SpeechLocaleOption] {
+        let installedIdentifiers = Set(await SpeechTranscriber.installedLocales.map(\.identifier))
+        let supportedLocales = await SpeechTranscriber.supportedLocales
+
+        return supportedLocales
+            .map { locale in
+                SpeechLocaleOption(
+                    identifier: locale.identifier,
+                    displayName: localizedDisplayName(for: locale.identifier),
+                    availability: installedIdentifiers.contains(locale.identifier) ? .installed : .downloadable
+                )
+            }
+            .sorted { lhs, rhs in
+                lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+    }
+
+    func ensureLocaleInstalled(
+        identifier: String,
+        progressHandler: (@Sendable (Double) async -> Void)? = nil
+    ) async throws -> String {
+        let locale = try await canonicalSupportedLocale(for: identifier)
+        let module = SpeechTranscriber(locale: locale, preset: .transcription)
+        let currentStatus = await AssetInventory.status(forModules: [module])
+
+        if currentStatus == .installed {
+            if let progressHandler {
+                await progressHandler(1)
+            }
+            return locale.identifier
         }
 
-        return await SpeechTranscriber.supportedLocales.map(\.identifier).sorted()
+        if let progressHandler {
+            await progressHandler(0)
+        }
+
+        let request = try await AssetInventory.assetInstallationRequest(supporting: [module])
+        let progressTask: Task<Void, Never>?
+
+        if let request {
+            progressTask = Task {
+                while !Task.isCancelled {
+                    if let progressHandler {
+                        await progressHandler(request.progress.fractionCompleted)
+                    }
+                    try? await Task.sleep(for: .milliseconds(150))
+                }
+            }
+
+            do {
+                try await withTaskCancellationHandler {
+                    try Task.checkCancellation()
+                    try await request.downloadAndInstall()
+                    try Task.checkCancellation()
+                } onCancel: {
+                    request.progress.cancel()
+                }
+            } catch {
+                progressTask?.cancel()
+                throw error
+            }
+        } else {
+            progressTask = nil
+        }
+
+        progressTask?.cancel()
+        try Task.checkCancellation()
+
+        let finalStatus = await AssetInventory.status(forModules: [module])
+        guard finalStatus == .installed else {
+            throw WyomingSpeechTranscriberError.assetInstallationIncomplete(locale.identifier)
+        }
+
+        if let progressHandler {
+            await progressHandler(1)
+        }
+
+        return locale.identifier
+    }
+
+    func releaseLocaleReservation(identifier: String) async throws -> Bool {
+        let locale = try await canonicalSupportedLocale(for: identifier)
+        return await AssetInventory.release(reservedLocale: locale)
     }
 
     func transcribe(
@@ -42,6 +128,7 @@ actor WyomingSpeechTranscriber {
         }
 
         let locale = try await resolveLocale(languageHint: languageHint, preferredLocaleIdentifier: preferredLocaleIdentifier)
+        _ = try await ensureLocaleInstalled(identifier: locale.identifier)
         guard !audioData.isEmpty else {
             return Response(text: "", language: locale.identifier)
         }
@@ -104,8 +191,22 @@ actor WyomingSpeechTranscriber {
         throw WyomingSpeechTranscriberError.noSupportedLocales
     }
 
+    private func canonicalSupportedLocale(for identifier: String) async throws -> Locale {
+        let locale = Locale(identifier: normalizeLanguageIdentifier(identifier) ?? identifier)
+        if let resolved = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
+            return resolved
+        }
+
+        throw WyomingSpeechTranscriberError.unsupportedLocale(identifier)
+    }
+
     private func normalizeLanguageIdentifier(_ identifier: String?) -> String? {
         guard let identifier else { return nil }
         return identifier.replacingOccurrences(of: "_", with: "-")
+    }
+
+    private func localizedDisplayName(for identifier: String) -> String {
+        let locale = Locale(identifier: identifier)
+        return locale.localizedString(forIdentifier: identifier) ?? identifier
     }
 }

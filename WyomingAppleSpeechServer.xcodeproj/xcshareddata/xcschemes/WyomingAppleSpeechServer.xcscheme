@@ -20,20 +20,6 @@
                ReferencedContainer = "container:WyomingAppleSpeechServer.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "0BD8D432B74AF4665BBBD4A1"
-               BuildableName = "WyomingAppleSpeechServerTests.xctest"
-               BlueprintName = "WyomingAppleSpeechServerTests"
-               ReferencedContainer = "container:WyomingAppleSpeechServer.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

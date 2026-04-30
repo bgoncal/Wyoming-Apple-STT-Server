@@ -22,6 +22,20 @@ Native macOS app that exposes Apple's local speech-to-text and text-to-speech en
 1. Open `WyomingAppleSpeechServer.xcodeproj` in Xcode 26+
 2. Click on "▶️" (Run)
 
+Or build and run from the command line:
+
+```sh
+script/build_and_run.sh
+```
+
+Useful modes:
+
+```sh
+script/build_and_run.sh --verify
+script/build_and_run.sh --logs
+script/build_and_run.sh test
+```
+
 ## Home Assistant
 
 1. Open the app and allow speech recognition access the first time it starts.

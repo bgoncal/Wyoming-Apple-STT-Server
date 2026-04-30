@@ -313,6 +313,7 @@ private final class WyomingClientSession {
             synthesizeStreamRequest = WyomingSynthesizeRequest(
                 text: "",
                 voice: WyomingSynthesizeVoice.from(event.data["voice"]?.objectValue),
+                language: event.data["language"]?.stringValue,
                 context: event.data["context"]?.objectValue
             )
             synthesizeTextChunks.removeAll(keepingCapacity: true)
@@ -397,14 +398,14 @@ private final class WyomingClientSession {
             "Synthesizing speech for \(clientLabel)"
             + " characters=\(request.text.count)"
             + " voice=\(request.voice?.name ?? request.voice?.speaker ?? "<default>")"
-            + " language=\(request.voice?.language ?? configuration.preferredLocaleIdentifier)"
+            + " language=\(request.language ?? request.voice?.language ?? configuration.preferredLocaleIdentifier)"
         )
 
         do {
             let response = try await synthesizer.synthesize(
                 text: request.text,
                 requestedVoice: request.voice,
-                preferredLanguage: configuration.preferredLocaleIdentifier
+                preferredLanguage: request.language ?? request.voice?.language ?? configuration.preferredLocaleIdentifier
             )
             send(.audioStart(format: response.format))
             sendAudioChunks(response.audioData, format: response.format)

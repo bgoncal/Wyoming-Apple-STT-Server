@@ -154,6 +154,7 @@ struct WyomingSynthesizeVoice: Sendable, Equatable {
 struct WyomingSynthesizeRequest: Sendable, Equatable {
     var text: String
     var voice: WyomingSynthesizeVoice?
+    var language: String? = nil
     var context: WyomingObject?
 
     static func from(_ event: WyomingEvent) -> WyomingSynthesizeRequest? {
@@ -161,9 +162,11 @@ struct WyomingSynthesizeRequest: Sendable, Equatable {
             return nil
         }
 
+        let voice = WyomingSynthesizeVoice.from(event.data["voice"]?.objectValue)
         return WyomingSynthesizeRequest(
             text: text,
-            voice: WyomingSynthesizeVoice.from(event.data["voice"]?.objectValue),
+            voice: voice,
+            language: event.data["language"]?.stringValue ?? voice?.language,
             context: event.data["context"]?.objectValue
         )
     }
@@ -173,6 +176,7 @@ struct WyomingTTSVoice: Sendable, Equatable {
     var name: String
     var language: String
     var displayName: String
+    var variantDescription: String?
 }
 
 struct WyomingEvent: Sendable, Equatable {
@@ -253,12 +257,19 @@ struct WyomingEvent: Sendable, Equatable {
                 lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
             .map { voice in
-                .object([
+                let description: String
+                if let variantDescription = voice.variantDescription {
+                    description = "\(voice.displayName) (\(voice.language), \(variantDescription))"
+                } else {
+                    description = "\(voice.displayName) (\(voice.language))"
+                }
+
+                return WyomingValue.object([
                     "name": .string(voice.name),
                     "languages": .array([.string(voice.language)]),
                     "attribution": .object(avFoundationAttribution),
                     "installed": .bool(true),
-                    "description": .string("\(voice.displayName) (\(voice.language))"),
+                    "description": .string(description),
                     "version": .string("macOS 26"),
                 ])
             }

@@ -9,7 +9,7 @@ Native macOS app that exposes Apple's local speech-to-text and text-to-speech en
 - Accepts `describe`, `transcribe`, `audio-start`, `audio-chunk`, and `audio-stop`
 - Returns final `transcript` events using Apple's on-device Speech framework
 - Accepts `synthesize` requests and returns `audio-start`, `audio-chunk`, and `audio-stop`
-- Advertises installed Apple system voices as Wyoming TTS speakers
+- Advertises installed Apple system voices as Wyoming TTS speakers, including enhanced and premium voices exposed by macOS
 - Provides a small desktop control panel for status, settings, logs, and recent transcripts
 
 ## Assumptions

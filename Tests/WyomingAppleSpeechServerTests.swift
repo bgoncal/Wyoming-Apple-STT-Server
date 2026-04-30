@@ -85,6 +85,31 @@ func infoAdvertisesTextToSpeechWhenVoicesAreAvailable() {
 }
 
 @Test
+func infoIncludesVoiceVariantInDescription() {
+    let event = WyomingEvent.info(
+        serviceName: "Test Server",
+        asrLanguages: ["en-US"],
+        ttsVoices: [
+            WyomingTTSVoice(
+                name: "com.apple.voice.enhanced.en-US.Test",
+                language: "en-US",
+                displayName: "Test Voice",
+                variantDescription: "Enhanced"
+            ),
+        ],
+        port: 10_300
+    )
+
+    guard case let .array(ttsPrograms) = event.data["tts"],
+          case let .array(voices)? = ttsPrograms.first?.objectValue?["voices"] else {
+        Issue.record("Expected tts voice list.")
+        return
+    }
+
+    #expect(voices.first?.objectValue?["description"] == .string("Test Voice (en-US, Enhanced)"))
+}
+
+@Test
 func synthesizeRequestParsesTextAndVoice() {
     let event = WyomingEvent(
         type: "synthesize",
@@ -104,6 +129,22 @@ func synthesizeRequestParsesTextAndVoice() {
     #expect(request?.voice?.name == "com.apple.voice.compact.en-US.Samantha")
     #expect(request?.voice?.language == "en-US")
     #expect(request?.voice?.speaker == "Samantha")
+}
+
+@Test
+func synthesizeRequestParsesTopLevelLanguage() {
+    let event = WyomingEvent(
+        type: "synthesize",
+        data: [
+            "text": .string("Olá"),
+            "language": .string("pt-BR"),
+        ]
+    )
+
+    let request = WyomingSynthesizeRequest.from(event)
+
+    #expect(request?.text == "Olá")
+    #expect(request?.language == "pt-BR")
 }
 
 @Test

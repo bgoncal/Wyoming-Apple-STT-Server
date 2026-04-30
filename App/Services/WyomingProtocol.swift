@@ -31,6 +31,12 @@ enum WyomingValue: Sendable, Equatable {
         switch value {
         case let string as String:
             self = .string(string)
+        case let number as NSNumber:
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                self = .bool(number.boolValue)
+            } else {
+                self = .number(number.doubleValue)
+            }
         case let bool as Bool:
             self = .bool(bool)
         case let int as Int:
@@ -129,6 +135,46 @@ struct WyomingTranscribeRequest: Sendable, Equatable {
     var context: WyomingObject?
 }
 
+struct WyomingSynthesizeVoice: Sendable, Equatable {
+    var name: String?
+    var language: String?
+    var speaker: String?
+
+    static func from(_ object: WyomingObject?) -> WyomingSynthesizeVoice? {
+        guard let object else { return nil }
+
+        return WyomingSynthesizeVoice(
+            name: object["name"]?.stringValue,
+            language: object["language"]?.stringValue,
+            speaker: object["speaker"]?.stringValue
+        )
+    }
+}
+
+struct WyomingSynthesizeRequest: Sendable, Equatable {
+    var text: String
+    var voice: WyomingSynthesizeVoice?
+    var context: WyomingObject?
+
+    static func from(_ event: WyomingEvent) -> WyomingSynthesizeRequest? {
+        guard let text = event.data["text"]?.stringValue else {
+            return nil
+        }
+
+        return WyomingSynthesizeRequest(
+            text: text,
+            voice: WyomingSynthesizeVoice.from(event.data["voice"]?.objectValue),
+            context: event.data["context"]?.objectValue
+        )
+    }
+}
+
+struct WyomingTTSVoice: Sendable, Equatable {
+    var name: String
+    var language: String
+    var displayName: String
+}
+
 struct WyomingEvent: Sendable, Equatable {
     var type: String
     var data: WyomingObject = [:]
@@ -167,36 +213,71 @@ struct WyomingEvent: Sendable, Equatable {
         return framed
     }
 
-    static func info(serviceName: String, languages: [String], port: UInt16) -> WyomingEvent {
-        let attribution: WyomingObject = [
+    static func info(
+        serviceName: String,
+        asrLanguages: [String],
+        ttsVoices: [WyomingTTSVoice] = [],
+        port: UInt16
+    ) -> WyomingEvent {
+        let speechAttribution: WyomingObject = [
             "name": .string("Apple Speech"),
             "url": .string("https://developer.apple.com/documentation/speech"),
         ]
 
-        let model: WyomingObject = [
+        let asrModel: WyomingObject = [
             "name": .string("apple-local-stt"),
-            "languages": .array(languages.map(WyomingValue.string)),
-            "attribution": .object(attribution),
+            "languages": .array(asrLanguages.map(WyomingValue.string)),
+            "attribution": .object(speechAttribution),
             "installed": .bool(true),
             "description": .string("On-device speech-to-text powered by Apple's Speech framework."),
             "version": .string("macOS 26"),
         ]
 
-        let program: WyomingObject = [
+        let asrProgram: WyomingObject = [
             "name": .string(serviceName),
-            "attribution": .object(attribution),
+            "attribution": .object(speechAttribution),
             "installed": .bool(true),
             "description": .string("Local Wyoming speech server on TCP port \(port)."),
             "version": .string("0.1.0"),
-            "models": .array([.object(model)]),
+            "models": .array([.object(asrModel)]),
             "supports_transcript_streaming": .bool(false),
+        ]
+
+        let avFoundationAttribution: WyomingObject = [
+            "name": .string("Apple AVFoundation"),
+            "url": .string("https://developer.apple.com/documentation/avfoundation/speech_synthesis"),
+        ]
+
+        let ttsVoiceObjects: [WyomingValue] = ttsVoices
+            .sorted { lhs, rhs in
+                lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+            .map { voice in
+                .object([
+                    "name": .string(voice.name),
+                    "languages": .array([.string(voice.language)]),
+                    "attribution": .object(avFoundationAttribution),
+                    "installed": .bool(true),
+                    "description": .string("\(voice.displayName) (\(voice.language))"),
+                    "version": .string("macOS 26"),
+                ])
+            }
+
+        let ttsProgram: WyomingObject = [
+            "name": .string(serviceName),
+            "attribution": .object(avFoundationAttribution),
+            "installed": .bool(true),
+            "description": .string("Local Wyoming text-to-speech server on TCP port \(port)."),
+            "version": .string("0.1.0"),
+            "voices": .array(ttsVoiceObjects),
+            "supports_synthesize_streaming": .bool(false),
         ]
 
         return WyomingEvent(
             type: "info",
             data: [
-                "asr": .array([.object(program)]),
-                "tts": .array([]),
+                "asr": .array([.object(asrProgram)]),
+                "tts": .array(ttsVoices.isEmpty ? [] : [.object(ttsProgram)]),
                 "handle": .array([]),
                 "intent": .array([]),
                 "wake": .array([]),
@@ -213,6 +294,32 @@ struct WyomingEvent: Sendable, Equatable {
         }
 
         return WyomingEvent(type: "transcript", data: data)
+    }
+
+    static func audioStart(format: WyomingAudioFormat) -> WyomingEvent {
+        WyomingEvent(type: "audio-start", data: format.eventData)
+    }
+
+    static func audioChunk(_ payload: Data, format: WyomingAudioFormat) -> WyomingEvent {
+        WyomingEvent(type: "audio-chunk", data: format.eventData, payload: payload)
+    }
+
+    static func audioStop() -> WyomingEvent {
+        WyomingEvent(type: "audio-stop")
+    }
+
+    static func error(message: String) -> WyomingEvent {
+        WyomingEvent(type: "error", data: ["message": .string(message)])
+    }
+}
+
+private extension WyomingAudioFormat {
+    var eventData: WyomingObject {
+        [
+            "rate": .number(Double(rate)),
+            "width": .number(Double(width)),
+            "channels": .number(Double(channels)),
+        ]
     }
 }
 

@@ -29,6 +29,7 @@ final class AppModel {
     private let logPageSize = 50
 
     private let transcriber = WyomingSpeechTranscriber()
+    private let synthesizer = WyomingSpeechSynthesizer()
     private var serverController: WyomingServerController?
     private var localeInstallTask: Task<String, Error>?
     private var pendingRemovalLocaleIdentifiers: Set<String> = []
@@ -42,7 +43,7 @@ final class AppModel {
         self.preferredLocaleIdentifier = defaults.string(forKey: Defaults.localeIdentifier) ?? Locale.current.identifier
         self.autoStart = defaults.object(forKey: Defaults.autoStart) as? Bool ?? true
 
-        appendLog("Ready to host a Wyoming STT endpoint backed by Apple Speech.")
+        appendLog("Ready to host Wyoming STT and TTS endpoints backed by Apple speech APIs.")
 
         Task { @MainActor [weak self] in
             await self?.bootstrap()
@@ -114,7 +115,11 @@ final class AppModel {
             autoStart: autoStart
         )
 
-        let controller = WyomingServerController(configuration: configuration, transcriber: transcriber)
+        let controller = WyomingServerController(
+            configuration: configuration,
+            transcriber: transcriber,
+            synthesizer: synthesizer
+        )
         controller.onLog = { [weak self] message in
             self?.appendLog(message)
         }

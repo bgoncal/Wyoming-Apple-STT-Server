@@ -1,6 +1,6 @@
 # Wyoming Apple Speech Server
 
-Native macOS app that exposes Apple's local speech-to-text engine through the Wyoming protocol so it can plug into Home Assistant voice pipelines.
+Native macOS app that exposes Apple's local speech-to-text and text-to-speech engines through the Wyoming protocol so it can plug into Home Assistant voice pipelines.
 
 ## What it does
 
@@ -8,6 +8,8 @@ Native macOS app that exposes Apple's local speech-to-text engine through the Wy
 - Advertises `_wyoming._tcp.local.` over Bonjour
 - Accepts `describe`, `transcribe`, `audio-start`, `audio-chunk`, and `audio-stop`
 - Returns final `transcript` events using Apple's on-device Speech framework
+- Accepts `synthesize` requests and returns `audio-start`, `audio-chunk`, and `audio-stop`
+- Advertises installed Apple system voices as Wyoming TTS speakers
 - Provides a small desktop control panel for status, settings, logs, and recent transcripts
 
 ## Assumptions
@@ -29,4 +31,4 @@ Native macOS app that exposes Apple's local speech-to-text engine through the Wy
 
 ## Notes
 
-The Wyoming service metadata is intentionally minimal for now: one installed ASR program and one model named `apple-local-stt`.
+The Wyoming service metadata advertises one ASR model named `apple-local-stt` and the installed Apple voices as Wyoming TTS voices. TTS audio is returned as raw 16-bit PCM using the sample rate produced by Apple's speech synthesizer.

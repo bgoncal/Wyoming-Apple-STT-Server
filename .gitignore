@@ -19,6 +19,7 @@ playground.xcworkspace
 
 # Local app artifacts
 /dist
+build/
 .DS_Store
 .netrc
 

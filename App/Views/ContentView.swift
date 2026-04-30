@@ -45,7 +45,7 @@ struct ContentView: View {
                         .font(.system(size: 31, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
 
-                    Text("A Home Assistant-style local voice endpoint for fast, on-device Apple speech recognition.")
+                    Text("A Home Assistant-style local voice endpoint for fast, on-device Apple speech recognition and synthesis.")
                         .font(.headline)
                         .foregroundStyle(Color.white.opacity(0.88))
                 }
@@ -102,7 +102,7 @@ struct ContentView: View {
     private var metrics: some View {
         HStack(spacing: 16) {
             MetricTile(title: "Status", value: statusTitle, accent: statusTint, symbol: "dot.radiowaves.left.and.right")
-            MetricTile(title: "Discovery", value: model.advertisedServiceType, accent: haBlue, symbol: "bonjour")
+            MetricTile(title: "Capabilities", value: "STT + TTS", accent: haBlue, symbol: "speaker.wave.2.fill")
             MetricTile(title: "Clients", value: "\(model.activeClientCount)", accent: haOrange, symbol: "person.2.fill")
             MetricTile(title: "Locale", value: model.preferredLocaleIdentifier, accent: .green, symbol: "globe")
         }
@@ -161,7 +161,9 @@ struct ContentView: View {
                 sectionHeader("Home Assistant", icon: "house.and.flag")
                 Text("The app advertises itself as `_wyoming._tcp.local.` and defaults to port `10300`, which matches typical Wyoming deployments.")
                     .foregroundStyle(.secondary)
-                Text("All locales Apple supports are shown here. If you pick one that is not installed yet, the app downloads the speech assets and shows progress before using it.")
+                Text("All locales Apple supports for STT are shown here. If you pick one that is not installed yet, the app downloads the speech assets and shows progress before using it.")
+                    .foregroundStyle(.secondary)
+                Text("TTS is advertised from the Apple voices installed on this Mac and responds to Wyoming `synthesize` requests with raw PCM audio.")
                     .foregroundStyle(.secondary)
                 Text("If discovery does not appear immediately, add the Wyoming Protocol integration manually and point it at this Mac’s LAN IP plus the chosen port.")
                     .foregroundStyle(.secondary)

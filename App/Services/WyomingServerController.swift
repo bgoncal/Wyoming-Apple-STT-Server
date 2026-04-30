@@ -10,12 +10,18 @@ final class WyomingServerController {
 
     private let configuration: ServerConfiguration
     private let transcriber: WyomingSpeechTranscriber
+    private let synthesizer: WyomingSpeechSynthesizer
     private var listener: NWListener?
     private var sessions: [UUID: WyomingClientSession] = [:]
 
-    init(configuration: ServerConfiguration, transcriber: WyomingSpeechTranscriber) {
+    init(
+        configuration: ServerConfiguration,
+        transcriber: WyomingSpeechTranscriber,
+        synthesizer: WyomingSpeechSynthesizer
+    ) {
         self.configuration = configuration
         self.transcriber = transcriber
+        self.synthesizer = synthesizer
     }
 
     func start() throws {
@@ -51,7 +57,8 @@ final class WyomingServerController {
         let session = WyomingClientSession(
             connection: connection,
             configuration: configuration,
-            transcriber: transcriber
+            transcriber: transcriber,
+            synthesizer: synthesizer
         )
 
         session.onLog = { [weak self] message in
@@ -101,19 +108,28 @@ private final class WyomingClientSession {
     private let connection: NWConnection
     private let configuration: ServerConfiguration
     private let transcriber: WyomingSpeechTranscriber
+    private let synthesizer: WyomingSpeechSynthesizer
     private let parser = WyomingEventParser()
 
     private var transcribeRequest = WyomingTranscribeRequest()
+    private var synthesizeStreamRequest: WyomingSynthesizeRequest?
+    private var synthesizeTextChunks: [String] = []
     private var activeAudioFormat: WyomingAudioFormat?
     private var activeAudio = Data()
     private var receivedAudioChunkCount = 0
     private var firstAudioChunkSize = 0
     private var hasClosed = false
 
-    init(connection: NWConnection, configuration: ServerConfiguration, transcriber: WyomingSpeechTranscriber) {
+    init(
+        connection: NWConnection,
+        configuration: ServerConfiguration,
+        transcriber: WyomingSpeechTranscriber,
+        synthesizer: WyomingSpeechSynthesizer
+    ) {
         self.connection = connection
         self.configuration = configuration
         self.transcriber = transcriber
+        self.synthesizer = synthesizer
     }
 
     func start() {
@@ -186,7 +202,8 @@ private final class WyomingClientSession {
         switch event.type {
         case "describe":
             let locales = await transcriber.availableLocaleIdentifiers()
-            send(.info(serviceName: configuration.serviceName, languages: locales, port: configuration.port))
+            let voices = synthesizer.availableVoices()
+            send(.info(serviceName: configuration.serviceName, asrLanguages: locales, ttsVoices: voices, port: configuration.port))
 
         case "transcribe":
             transcribeRequest = WyomingTranscribeRequest(
@@ -292,6 +309,55 @@ private final class WyomingClientSession {
                 onLog?("Transcription failed for \(clientLabel): \(error.localizedDescription)")
             }
 
+        case "synthesize-start":
+            synthesizeStreamRequest = WyomingSynthesizeRequest(
+                text: "",
+                voice: WyomingSynthesizeVoice.from(event.data["voice"]?.objectValue),
+                context: event.data["context"]?.objectValue
+            )
+            synthesizeTextChunks.removeAll(keepingCapacity: true)
+            onLog?("Received synthesize-start from \(clientLabel).")
+
+        case "synthesize-chunk":
+            let text = event.data["text"]?.stringValue ?? ""
+            synthesizeTextChunks.append(text)
+            onLog?("Received synthesize-chunk from \(clientLabel) characters=\(text.count).")
+
+        case "synthesize":
+            guard let request = WyomingSynthesizeRequest.from(event) else {
+                let message = "Received synthesize from \(clientLabel) without text."
+                onLog?(message)
+                send(.error(message: message))
+                return
+            }
+
+            if synthesizeStreamRequest != nil {
+                synthesizeStreamRequest = request
+                onLog?("Received compatibility synthesize from \(clientLabel) characters=\(request.text.count).")
+                return
+            }
+
+            await synthesizeAndSendAudio(request: request, sendStoppedEvent: false)
+
+        case "synthesize-stop":
+            let fallbackRequest = synthesizeStreamRequest
+            let text = synthesizeTextChunks.joined()
+            synthesizeStreamRequest = nil
+            synthesizeTextChunks.removeAll(keepingCapacity: false)
+
+            guard var request = fallbackRequest else {
+                let message = "Received synthesize-stop from \(clientLabel) without synthesize-start."
+                onLog?(message)
+                send(.error(message: message))
+                return
+            }
+
+            if !text.isEmpty {
+                request.text = text
+            }
+
+            await synthesizeAndSendAudio(request: request, sendStoppedEvent: true)
+
         case "ping":
             send(WyomingEvent(type: "pong"))
 
@@ -324,6 +390,56 @@ private final class WyomingClientSession {
         }
 
         return details.joined(separator: " ")
+    }
+
+    private func synthesizeAndSendAudio(request: WyomingSynthesizeRequest, sendStoppedEvent: Bool) async {
+        onLog?(
+            "Synthesizing speech for \(clientLabel)"
+            + " characters=\(request.text.count)"
+            + " voice=\(request.voice?.name ?? request.voice?.speaker ?? "<default>")"
+            + " language=\(request.voice?.language ?? configuration.preferredLocaleIdentifier)"
+        )
+
+        do {
+            let response = try await synthesizer.synthesize(
+                text: request.text,
+                requestedVoice: request.voice,
+                preferredLanguage: configuration.preferredLocaleIdentifier
+            )
+            send(.audioStart(format: response.format))
+            sendAudioChunks(response.audioData, format: response.format)
+            send(.audioStop())
+
+            if sendStoppedEvent {
+                send(WyomingEvent(type: "synthesize-stopped"))
+            }
+
+            onLog?(
+                "Synthesized speech for \(clientLabel)"
+                + " bytes=\(response.audioData.count)"
+                + " rate=\(response.format.rate)"
+                + " channels=\(response.format.channels)"
+                + " voice=\(response.voiceIdentifier ?? "<system-default>")"
+            )
+        } catch {
+            let message = "Synthesis failed for \(clientLabel): \(error.localizedDescription)"
+            send(.error(message: message))
+            if sendStoppedEvent {
+                send(WyomingEvent(type: "synthesize-stopped"))
+            }
+            onLog?(message)
+        }
+    }
+
+    private func sendAudioChunks(_ audioData: Data, format: WyomingAudioFormat) {
+        let chunkSize = 16_384
+        var offset = 0
+
+        while offset < audioData.count {
+            let end = min(offset + chunkSize, audioData.count)
+            send(.audioChunk(Data(audioData[offset..<end]), format: format))
+            offset = end
+        }
     }
 
     private func resolvedAudioFormatForBufferedStream() -> WyomingAudioFormat? {

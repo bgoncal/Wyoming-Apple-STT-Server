@@ -24,8 +24,23 @@ final class WyomingServerController {
         self.synthesizer = synthesizer
     }
 
+    /// TCP parameters with keepalive turned on, so an idle Wyoming connection (Home Assistant
+    /// holds one open between voice requests) is probed instead of being torn down silently by the
+    /// OS or the network. Without this the server never learns the link died and Home Assistant
+    /// only finds out when its next request fails.
+    private static func makeParameters() -> NWParameters {
+        let tcp = NWProtocolTCP.Options()
+        tcp.enableKeepalive = true
+        tcp.keepaliveIdle = 20       // seconds idle before the first probe
+        tcp.keepaliveInterval = 10   // seconds between probes
+        tcp.keepaliveCount = 3       // probes before the link is declared dead
+        tcp.connectionTimeout = 15
+        tcp.noDelay = true
+        return NWParameters(tls: nil, tcp: tcp)
+    }
+
     func start() throws {
-        let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: configuration.port)!)
+        let listener = try NWListener(using: Self.makeParameters(), on: NWEndpoint.Port(rawValue: configuration.port)!)
         listener.service = NWListener.Service(name: configuration.serviceName, type: "_wyoming._tcp")
         listener.newConnectionHandler = { [weak self] connection in
             Task { @MainActor [weak self] in
